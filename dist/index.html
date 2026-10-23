@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RustCat</title>
+<style>
+  :root {
+    --bg: #14121f;
+    --panel: #1b1929;
+    --panel-2: #232038;
+    --line: #332d4f;
+    --text: #ece9f7;
+    --muted: #8d85ab;
+    --accent: #7ad3ff;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    /* It's a popover, not a document: no text selection, no I-beam. */
+    user-select: none;
+    cursor: default;
+  }
+
+  /* The window itself is a decorationless rectangle, so the rounded look comes
+     from this inset card sitting on a --bg backdrop, which is what the corners
+     reveal. */
+  .app {
+    height: 100%;
+    margin: 7px;
+    padding: 12px 13px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    border: 1px solid var(--line);
+    border-radius: 13px;
+    background: linear-gradient(180deg, #1e1a33 0%, #171426 100%);
+  }
+
+  /* ---------- header ---------- */
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+  h1 { font-size: 13px; font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 7px; }
+
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #55506e; box-shadow: 0 0 0 0 rgba(74, 222, 128, 0);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .dot.live { background: #4ade80; box-shadow: 0 0 8px 1px rgba(74, 222, 128, 0.6); }
+
+  .note {
+    font-size: 10.5px; color: var(--muted); text-align: right;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .note.err { color: #f87171; }
+
+  /* ---------- cards ---------- */
+
+  main { flex: 1; display: flex; flex-direction: column; gap: 9px; min-height: 0; }
+
+  .card {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    padding: 10px 12px 11px;
+    overflow: hidden;
+  }
+
+  .card h2 {
+    font-size: 9.5px; font-weight: 650; letter-spacing: 0.13em;
+    text-transform: uppercase; color: var(--muted);
+  }
+
+  .card > div { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+  .big { display: flex; align-items: baseline; gap: 2px; line-height: 1; margin-top: 6px; }
+  .big-num {
+    font-size: 31px; font-weight: 680; letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    transition: color 0.4s;
+  }
+  .big-unit { font-size: 14px; font-weight: 600; color: var(--muted); }
+
+  .bar {
+    height: 6px; border-radius: 4px; margin-top: 8px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+  }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.45s ease, background 0.4s; }
+
+  .rows { margin-top: 5px; }
+  .row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11.5px; padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .k { color: var(--muted); }
+  .row .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .row .u { font-weight: 400; color: var(--muted); font-size: 10px; margin-left: 2px; }
+
+  .cores-label {
+    font-size: 9px; letter-spacing: 0.11em; text-transform: uppercase;
+    color: var(--muted); margin: 7px 0 4px;
+  }
+  /* margin-top:auto pins the bars to the card's bottom edge, so the CPU and
+     memory cards keep their baselines aligned however many rows each one has. */
+  .cores { display: flex; align-items: flex-end; gap: 2px; height: 22px; margin-top: auto; }
+  .cores i { flex: 1; min-height: 2px; border-radius: 2px 2px 0 0; opacity: 0.85; transition: height 0.4s ease; }
+
+  .placeholder { color: var(--muted); font-size: 11.5px; padding: 6px 0; }
+
+  /* ---------- footer ---------- */
+
+  footer { font-size: 10px; color: var(--muted); text-align: center; }
+
+  kbd {
+    font: inherit; color: var(--text);
+    border: 1px solid var(--line); border-radius: 3px;
+    padding: 0 3px;
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1><span class="dot" id="dot"></span>RustCat</h1>
+      <div class="note" id="note">connecting…</div>
+    </header>
+
+    <main>
+      <article class="card">
+        <h2>CPU</h2>
+        <div id="cpu-body"><div class="placeholder">Waiting for metrics…</div></div>
+      </article>
+      <article class="card">
+        <h2>Memory</h2>
+        <div id="mem-body"><div class="placeholder">Waiting for metrics…</div></div>
+      </article>
+    </main>
+
+    <footer><kbd>Esc</kbd> to close · right-click the cat to quit</footer>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var POLL_MS = 1000;
+
+  var dotEl = document.getElementById("dot");
+  var noteEl = document.getElementById("note");
+  var cpuBody = document.getElementById("cpu-body");
+  var memBody = document.getElementById("mem-body");
+
+  var inFlight = false;
+  var failures = 0;
+  var polls = 0;
+
+  // ---- Tauri bridge ----------------------------------------------------
+
+  function invoke(cmd, args) {
+    var t = window.__TAURI__;
+    var fn = t && ((t.core && t.core.invoke) || t.invoke);
+    if (typeof fn !== "function") {
+      return Promise.reject(new Error("Tauri bridge unavailable — is withGlobalTauri enabled?"));
+    }
+    return fn(cmd, args || {});
+  }
+
+  // ---- formatting ------------------------------------------------------
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes < 1) return "0 B";
+    var units = ["B", "KB", "MB", "GB", "TB"];
+    var i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+    return (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1) + " " + units[i];
+  }
+
+  // Green below 60%, amber to 85%, red past it.
+  function barColor(pct) {
+    if (pct < 60) return "linear-gradient(90deg,#2fbf87,#4ade80)";
+    if (pct < 85) return "linear-gradient(90deg,#e8a33d,#fbbf24)";
+    return "linear-gradient(90deg,#e04b4b,#f87171)";
+  }
+
+  function valueColor(pct) {
+    if (pct < 60) return "var(--accent)";
+    if (pct < 85) return "#fbbf24";
+    return "#f87171";
+  }
+
+  function row(label, value, unit) {
+    return '<div class="row"><span class="k">' + label + '</span><span class="v">' +
+      value + (unit ? '<span class="u">' + unit + '</span>' : "") + "</span></div>";
+  }
+
+  // ---- rendering -------------------------------------------------------
+
+  function renderCpu(cpu) {
+    var usage = Math.min(100, Math.max(0, Number(cpu.global_usage) || 0));
+    var cores = cpu.per_core || [];
+
+    var html =
+      '<div class="big"><span class="big-num" style="color:' + valueColor(usage) + '">' +
+        usage.toFixed(1) + '</span><span class="big-unit">%</span></div>' +
+      '<div class="bar"><div class="bar-fill" style="width:' + usage +
+        "%;background:" + barColor(usage) + '"></div></div>' +
+      '<div class="rows">' +
+        row("Cores", cpu.core_count != null ? cpu.core_count : "–") +
+        // Apple Silicon reports 0 MHz; the Rust side turns that into null.
+        (cpu.frequency_mhz ? row("Frequency", cpu.frequency_mhz, "MHz") : "") +
+        // serde sends `null`, not `undefined` — compare loosely.
+        (cpu.temperature_celsius != null
+          ? row("Temperature", Number(cpu.temperature_celsius).toFixed(1), "°C")
+          : "") +
+      "</div>";
+
+    if (cores.length) {
+      html += '<div class="cores-label">per-core</div><div class="cores">';
+      for (var i = 0; i < cores.length; i++) {
+        var v = Math.min(100, Math.max(0, Number(cores[i]) || 0));
+        html += '<i style="height:' + Math.max(3, v) + "%;background:" + barColor(v) + '"></i>';
+      }
+      html += "</div>";
+    }
+
+    cpuBody.innerHTML = html;
+  }
+
+  function renderMemory(mem) {
+    var total = Number(mem.total_bytes) || 0;
+    var used = Number(mem.used_bytes) || 0;
+    var pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+
+    var html =
+      '<div class="big"><span class="big-num" style="color:' + valueColor(pct) + '">' +
+        pct.toFixed(0) + '</span><span class="big-unit">%</span></div>' +
+      '<div class="bar"><div class="bar-fill" style="width:' + pct +
+        "%;background:" + barColor(pct) + '"></div></div>' +
+      '<div class="rows">' +
+        row("Used", formatBytes(used)) +
+        row("Total", formatBytes(total)) +
+        row("Available", formatBytes(mem.available_bytes)) +
+        (mem.swap_total_bytes > 0
+          ? row("Swap", formatBytes(mem.swap_used_bytes) + " / " + formatBytes(mem.swap_total_bytes))
+          : "") +
+      "</div>";
+
+    memBody.innerHTML = html;
+  }
+
+  // ---- loop ------------------------------------------------------------
+
+  function apply(data) {
+    if (data.cpu) renderCpu(data.cpu);
+    if (data.memory) renderMemory(data.memory);
+
+    dotEl.classList.add("live");
+    noteEl.classList.remove("err");
+    noteEl.textContent = "rustcat-metrics";
+  }
+
+  function poll() {
+    if (inFlight) return;
+    inFlight = true;
+    invoke("get_system_snapshot")
+      .then(function (data) {
+        failures = 0;
+        polls++;
+        try {
+          apply(data || {});
+        } catch (err) {
+          // Never let a render bug look like a hung backend.
+          dotEl.classList.remove("live");
+          noteEl.classList.add("err");
+          noteEl.textContent = "render error: " + err.message;
+        }
+      })
+      .catch(function (err) {
+        // One dropped poll is normal while the machine is busy; only a run of
+        // them is worth putting on screen.
+        failures++;
+        if (failures >= 2) {
+          dotEl.classList.remove("live");
+          noteEl.classList.add("err");
+          noteEl.textContent = String(err && err.message ? err.message : err);
+        }
+      })
+      .then(function () { inFlight = false; });
+  }
+
+  // ---- self-report -----------------------------------------------------
+  //
+  // The panel can be on screen with a page that never painted, or painted with
+  // numbers that never arrived, and from the Rust side those look the same. So
+  // the page says what it can see from in here: whether it is visible at all,
+  // whether it is being asked to draw frames (a webview that is not being
+  // composited stops asking), how many readings have landed, and what the two
+  // cards currently read.
+
+  var frames = 0;
+
+  (function countFrames() {
+    frames++;
+    requestAnimationFrame(countFrames);
+  })();
+
+  function brief(text) {
+    return (text || "").replace(/\s+/g, " ").trim().slice(0, 44);
+  }
+
+  function report(tag) {
+    invoke("panel_report", {
+      report:
+        tag +
+        " visible=" + document.visibilityState +
+        " focus=" + document.hasFocus() +
+        " frames=" + frames +
+        " polls=" + polls +
+        " misses=" + failures +
+        " body=" + document.body.clientWidth + "x" + document.body.clientHeight +
+        ' cpu="' + brief(cpuBody.textContent) + '"' +
+        ' mem="' + brief(memBody.textContent) + '"',
+    }).catch(function () {});
+    return frames;
+  }
+
+  // Bounded on purpose: enough to watch the first readings land after the panel
+  // opens, not one line a second for as long as the app is running.
+  function burst(step, tag) {
+    if (step > 6) return;
+    report(tag + "+" + step + "s");
+    setTimeout(function () { burst(step + 1, tag); }, 1000);
+  }
+
+  // Reported from load rather than from the panel opening, because "the page went
+  // quiet before the window was ever shown" and "the page went quiet when it was
+  // shown" are different bugs and the log has to say which one this is.
+  burst(1, "t");
+
+  window.addEventListener("focus", function () { report("page focus"); });
+
+  document.addEventListener("visibilitychange", function () {
+    report("visibility");
+    if (document.visibilityState !== "visible") return;
+    // The panel opening is the one moment a reading has to be current, and a page
+    // that has been hidden is not a page whose next timer tick is due soon.
+    poll();
+    burst(1, "open");
+  });
+
+  // The window loses focus whenever it is dismissed, and the Rust side hides it
+  // on that event; Escape just gets there one round-trip sooner. It also keeps
+  // the panel dismissable if a future window ever holds focus without a blur.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" && e.key !== "Esc") return;
+    e.preventDefault();
+    invoke("hide_panel").catch(function () {});
+  });
+
+  poll();
+  setInterval(poll, POLL_MS);
+  report("loaded");
+})();
+</script>
+</body>
+</html>

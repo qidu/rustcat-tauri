@@ -1,0 +1,10 @@
+{
+  "name": "rustcat-tauri-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'No dev server - using static HTML'",
+    "build": "echo 'No build step - using static HTML'"
+  },
+  "devDependencies": {}
+}
