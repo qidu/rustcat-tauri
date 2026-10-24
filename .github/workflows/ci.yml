@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # The hook for the web UI's "Create a new release" button — it fires on
+  # Publish, and covers releases made from `gh release create` and the API too.
+  # A tag-only trigger would miss a release pointed at a tag that already
+  # existed, since nothing is pushed in that case.
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: rustcat-tauri/src-tauri
+    steps:
+      - name: Check out rustcat-tauri
+        uses: actions/checkout@v4
+        with:
+          path: rustcat-tauri
+
+      # src-tauri/Cargo.toml names rustcat-metrics by relative path
+      # ("../../rustcat-metrics"), which points outside this repository. Putting
+      # the two checkouts side by side is what makes that path resolve here the
+      # same way it does on a developer's disk.
+      - name: Check out rustcat-metrics
+        uses: actions/checkout@v4
+        with:
+          repository: qidu/rustcat-metrics
+          path: rustcat-metrics
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rustcat-tauri/src-tauri
+
+      # Tauri links against the system webview and tray libraries, which the
+      # runner images do not carry by default. apt does not care which directory
+      # it runs from, so the job's working-directory default is left alone.
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            patchelf
+
+      # Formatting is a property of the source, so one OS is enough.
+      - name: cargo fmt
+        if: runner.os == 'Linux'
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+  # Bundling is the slow half of this workflow and a pull request will not ship
+  # anything, so it only runs for main, releases, and manual dispatches.
+  bundle:
+    name: bundle (${{ matrix.os }})
+    if: github.event_name != 'pull_request'
+    needs: check
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out rustcat-tauri
+        uses: actions/checkout@v4
+        with:
+          path: rustcat-tauri
+
+      - name: Check out rustcat-metrics
+        uses: actions/checkout@v4
+        with:
+          repository: qidu/rustcat-metrics
+          path: rustcat-metrics
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rustcat-tauri/src-tauri
+
+      # Builds the .app/.dmg or .msi/.exe, and when the run came from a
+      # published release it hands the installers to that release — the one the
+      # web UI just created, found by tag. On a branch push or a manual dispatch
+      # release.tag_name is absent, so tagName is empty, which is how the action
+      # is told to build without touching a release at all.
+      - name: Build bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: rustcat-tauri
+          tagName: ${{ github.event.release.tag_name || '' }}
+
+      # Every run keeps its installers, tagged or not, so a build can be
+      # downloaded and tried without publishing anything. Only the installers,
+      # not the .app directory: artifact v4 drops the permissions and symlinks a
+      # macOS bundle needs to stay runnable, and the .dmg wraps that up intact.
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.os }}
+          path: |
+            rustcat-tauri/src-tauri/target/release/bundle/**/*.dmg
+            rustcat-tauri/src-tauri/target/release/bundle/**/*.msi
+            rustcat-tauri/src-tauri/target/release/bundle/**/*.exe
+          if-no-files-found: error
